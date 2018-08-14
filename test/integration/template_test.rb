@@ -215,16 +215,20 @@ class TemplateTest < Minitest::Test
     assert_equal 'ruby error in drop', e.message
   end
 
-  def test_exception_handler_doesnt_reraise_if_it_returns_false
+  def test_exception_renderer_that_returns_string
     exception = nil
-    Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_handler: ->(e) { exception = e; false })
+    handler = ->(e) { exception = e; '<!-- error -->' }
+
+    output = Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_renderer: handler)
+
     assert exception.is_a?(Liquid::ZeroDivisionError)
+    assert_equal '<!-- error -->', output
   end
 
-  def test_exception_handler_does_reraise_if_it_returns_true
+  def test_exception_renderer_that_raises
     exception = nil
     assert_raises(Liquid::ZeroDivisionError) do
-      Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_handler: ->(e) { exception = e; true })
+      Template.parse("{{ 1 | divided_by: 0 }}").render({}, exception_renderer: ->(e) { exception = e; raise })
     end
     assert exception.is_a?(Liquid::ZeroDivisionError)
   end
@@ -255,6 +259,15 @@ class TemplateTest < Minitest::Test
     assert_equal 'Liquid error: undefined variable b', t.errors[1].message
     assert_instance_of Liquid::UndefinedVariable, t.errors[2]
     assert_equal 'Liquid error: undefined variable d', t.errors[2].message
+  end
+
+  def test_nil_value_does_not_raise
+    Liquid::Template.error_mode = :strict
+    t = Template.parse("some{{x}}thing")
+    result = t.render!({ 'x' => nil }, strict_variables: true)
+
+    assert_equal 0, t.errors.count
+    assert_equal 'something', result
   end
 
   def test_undefined_variables_raise

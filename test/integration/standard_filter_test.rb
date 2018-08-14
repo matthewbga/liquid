@@ -115,21 +115,29 @@ class StandardFiltersTest < Minitest::Test
     assert_equal '...', @filters.truncate('1234567890', 0)
     assert_equal '1234567890', @filters.truncate('1234567890')
     assert_equal "测试...", @filters.truncate("测试测试测试测试", 5)
+    assert_equal '12341', @filters.truncate("1234567890", 5, 1)
   end
 
   def test_split
     assert_equal ['12', '34'], @filters.split('12~34', '~')
     assert_equal ['A? ', ' ,Z'], @filters.split('A? ~ ~ ~ ,Z', '~ ~ ~')
     assert_equal ['A?Z'], @filters.split('A?Z', '~')
-    # Regexp works although Liquid does not support.
-    assert_equal ['A', 'Z'], @filters.split('AxZ', /x/)
     assert_equal [], @filters.split(nil, ' ')
+    assert_equal ['A', 'Z'], @filters.split('A1Z', 1)
   end
 
   def test_escape
     assert_equal '&lt;strong&gt;', @filters.escape('<strong>')
-    assert_equal nil, @filters.escape(nil)
+    assert_equal '1', @filters.escape(1)
+    assert_equal '2001-02-03', @filters.escape(Date.new(2001, 2, 3))
+    assert_nil @filters.escape(nil)
+  end
+
+  def test_h
     assert_equal '&lt;strong&gt;', @filters.h('<strong>')
+    assert_equal '1', @filters.h(1)
+    assert_equal '2001-02-03', @filters.h(Date.new(2001, 2, 3))
+    assert_nil @filters.h(nil)
   end
 
   def test_escape_once
@@ -138,14 +146,18 @@ class StandardFiltersTest < Minitest::Test
 
   def test_url_encode
     assert_equal 'foo%2B1%40example.com', @filters.url_encode('foo+1@example.com')
-    assert_equal nil, @filters.url_encode(nil)
+    assert_equal '1', @filters.url_encode(1)
+    assert_equal '2001-02-03', @filters.url_encode(Date.new(2001, 2, 3))
+    assert_nil @filters.url_encode(nil)
   end
 
   def test_url_decode
     assert_equal 'foo bar', @filters.url_decode('foo+bar')
     assert_equal 'foo bar', @filters.url_decode('foo%20bar')
     assert_equal 'foo+1@example.com', @filters.url_decode('foo%2B1%40example.com')
-    assert_equal nil, @filters.url_decode(nil)
+    assert_equal '1', @filters.url_decode(1)
+    assert_equal '2001-02-03', @filters.url_decode(Date.new(2001, 2, 3))
+    assert_nil @filters.url_decode(nil)
   end
 
   def test_truncatewords
@@ -154,6 +166,7 @@ class StandardFiltersTest < Minitest::Test
     assert_equal 'one two three', @filters.truncatewords('one two three')
     assert_equal 'Two small (13&#8221; x 5.5&#8221; x 10&#8221; high) baskets fit inside one large basket (13&#8221;...', @filters.truncatewords('Two small (13&#8221; x 5.5&#8221; x 10&#8221; high) baskets fit inside one large basket (13&#8221; x 16&#8221; x 10.5&#8221; high) with cover.', 15)
     assert_equal "测试测试测试测试", @filters.truncatewords('测试测试测试测试', 5)
+    assert_equal 'one two1', @filters.truncatewords("one two three", 2, 1)
   end
 
   def test_strip_html
@@ -169,11 +182,30 @@ class StandardFiltersTest < Minitest::Test
   def test_join
     assert_equal '1 2 3 4', @filters.join([1, 2, 3, 4])
     assert_equal '1 - 2 - 3 - 4', @filters.join([1, 2, 3, 4], ' - ')
+    assert_equal '1121314', @filters.join([1, 2, 3, 4], 1)
   end
 
   def test_sort
     assert_equal [1, 2, 3, 4], @filters.sort([4, 3, 2, 1])
     assert_equal [{ "a" => 1 }, { "a" => 2 }, { "a" => 3 }, { "a" => 4 }], @filters.sort([{ "a" => 4 }, { "a" => 3 }, { "a" => 1 }, { "a" => 2 }], "a")
+  end
+
+  def test_sort_when_property_is_sometimes_missing_puts_nils_last
+    input = [
+      { "price" => 4, "handle" => "alpha" },
+      { "handle" => "beta" },
+      { "price" => 1, "handle" => "gamma" },
+      { "handle" => "delta" },
+      { "price" => 2, "handle" => "epsilon" }
+    ]
+    expectation = [
+      { "price" => 1, "handle" => "gamma" },
+      { "price" => 2, "handle" => "epsilon" },
+      { "price" => 4, "handle" => "alpha" },
+      { "handle" => "delta" },
+      { "handle" => "beta" }
+    ]
+    assert_equal expectation, @filters.sort(input, "price")
   end
 
   def test_sort_empty_array
@@ -310,7 +342,7 @@ class StandardFiltersTest < Minitest::Test
     assert_equal "#{Date.today.year}", @filters.date('today', '%Y')
     assert_equal "#{Date.today.year}", @filters.date('Today', '%Y')
 
-    assert_equal nil, @filters.date(nil, "%B")
+    assert_nil @filters.date(nil, "%B")
 
     assert_equal '', @filters.date('', "%B")
 
@@ -323,8 +355,8 @@ class StandardFiltersTest < Minitest::Test
   def test_first_last
     assert_equal 1, @filters.first([1, 2, 3])
     assert_equal 3, @filters.last([1, 2, 3])
-    assert_equal nil, @filters.first([])
-    assert_equal nil, @filters.last([])
+    assert_nil @filters.first([])
+    assert_nil @filters.last([])
   end
 
   def test_replace
@@ -462,6 +494,28 @@ class StandardFiltersTest < Minitest::Test
     end
 
     assert_template_result "5", "{{ price | floor }}", 'price' => NumberLikeThing.new(5.4)
+  end
+
+  def test_at_most
+    assert_template_result "4", "{{ 5 | at_most:4 }}"
+    assert_template_result "5", "{{ 5 | at_most:5 }}"
+    assert_template_result "5", "{{ 5 | at_most:6 }}"
+
+    assert_template_result "4.5", "{{ 4.5 | at_most:5 }}"
+    assert_template_result "5", "{{ width | at_most:5 }}", 'width' => NumberLikeThing.new(6)
+    assert_template_result "4", "{{ width | at_most:5 }}", 'width' => NumberLikeThing.new(4)
+    assert_template_result "4", "{{ 5 | at_most: width }}", 'width' => NumberLikeThing.new(4)
+  end
+
+  def test_at_least
+    assert_template_result "5", "{{ 5 | at_least:4 }}"
+    assert_template_result "5", "{{ 5 | at_least:5 }}"
+    assert_template_result "6", "{{ 5 | at_least:6 }}"
+
+    assert_template_result "5", "{{ 4.5 | at_least:5 }}"
+    assert_template_result "6", "{{ width | at_least:5 }}", 'width' => NumberLikeThing.new(6)
+    assert_template_result "5", "{{ width | at_least:5 }}", 'width' => NumberLikeThing.new(4)
+    assert_template_result "6", "{{ 5 | at_least: width }}", 'width' => NumberLikeThing.new(6)
   end
 
   def test_append
